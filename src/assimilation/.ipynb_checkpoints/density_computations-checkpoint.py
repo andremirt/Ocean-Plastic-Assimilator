@@ -26,9 +26,6 @@ def compute_particle_ids_for_areas(
     lons = parts_lon[:, t]
     lats = parts_lat[:, t]
 
-    lons = np.ma.filled(lons, 0.0) if np.ma.isMaskedArray(lons) else lons
-    lats = np.ma.filled(lats, 0.0) if np.ma.isMaskedArray(lats) else lats
-
     return accelerated_cpfa(
         lons,
         lats,
@@ -80,16 +77,10 @@ def compute_densities(
 
     lons = ds_in.variables["lon"][:, T]
     lats = ds_in.variables["lat"][:, T]
-
     try:
         weights = ds_in.variables["weight"][:]
-        weights = np.ma.filled(weights, np.zeros)
     except KeyError:
         weights = np.array([1] * nbPart)
-
-    lons = np.ma.filled(lons, 0.0) if np.ma.isMaskedArray(lons) else lons
-    lats = np.ma.filled(lats, 0.0) if np.ma.isMaskedArray(lats) else lats
-    weights = np.ma.filled(weights, 0.0) if np.ma.isMaskedArray(weights) else weights
 
     lon_ids_for_all_parts = np.floor(
         (lons - grid_coords.x1) / grid_coords.spacing_x

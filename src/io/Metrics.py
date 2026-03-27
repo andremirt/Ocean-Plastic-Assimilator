@@ -62,7 +62,8 @@ class Metrics:
         )
 
         avg_weights = np.average(weights_ensemble[:, valid_lon_lats], axis=0)
-
+        avg_weights = np.ma.filled(avg_weights, 0.0) if np.ma.isMaskedArray(avg_weights) else avg_weights
+        
         if parts_original_path is not None:
             ds_ref = nc.Dataset(parts_original_path, "r")
             parts_ref_lon = ds_ref["lon"]
@@ -85,6 +86,7 @@ class Metrics:
             if densities_ref is not None
             else avgs_densities - self.avgs_densities_complete_original[:, :, t]
         )
+        densities_difference = np.ma.filled(densities_difference, 0.0) if np.ma.isMaskedArray(densities_difference) else densities_difference
 
         self.max_densities_error = max(
             self.max_densities_error, densities_difference.max()
@@ -92,7 +94,7 @@ class Metrics:
         self.min_densities_error = min(
             self.min_densities_error, densities_difference.min()
         )
-        current_rmse = np.math.sqrt(np.average(densities_difference ** 2))
+        current_rmse = np.sqrt(np.average(densities_difference ** 2))
 
         self.csv_logger.log("t", t + 1)
         self.csv_logger.log("weights_mins", np.min(avg_weights))
@@ -149,6 +151,8 @@ class Metrics:
         # Init plot
         fig, axs = plt.subplots(nrows=2, ncols=3, figsize=(20, 10))
 
+        weights_ensemble = np.ma.filled(weights_ensemble, 0.0) if np.ma.isMaskedArray(weights_ensemble) else weights_ensemble
+
         # Compute fields
         avgs_densities = np.average(densities_ensemble[:, :, :, t], axis=0)
         avg_weights = np.average(weights_ensemble, axis=0)
@@ -172,8 +176,10 @@ class Metrics:
             ax=axs[0, 1],
         ).set_facecolor("green")
 
-        sns.distplot(
-            avg_weights[(0 < avg_weights[:]) & (avg_weights[:] < 3)],
+        sns.histplot(
+            avg_weights,
+            bins=30,
+            binrange=(0, 3),
             ax=axs[1, 0],
         )
 
