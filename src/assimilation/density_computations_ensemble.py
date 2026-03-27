@@ -17,6 +17,11 @@ def compute_ensemble_densities_over_time(
 ):
     lons = parts_lon[:, T]
     lats = parts_lat[:, T]
+
+    lons = np.ma.filled(lons, 0.0) if np.ma.isMaskedArray(lons) else lons
+    lats = np.ma.filled(lats, 0.0) if np.ma.isMaskedArray(lats) else lats
+    weights = np.ma.filled(weights, 0.0) if np.ma.isMaskedArray(weights) else weights
+
     nbParts = parts_lon.shape[0]
 
     lon_ids_for_all_parts = np.floor(

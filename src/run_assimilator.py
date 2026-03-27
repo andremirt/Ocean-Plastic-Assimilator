@@ -31,7 +31,7 @@ def run_assimilator(
     t_start: int,
     t_end: int,
     initial_mass_multiplicator: float = 1,
-    radius_observation: int = np.infty,
+    radius_observation: int = np.inf,
     reinit_spreading: float = 0,
     metrics_plot_period: int = 10,
     observations_error_percent: Optional[float] = None,

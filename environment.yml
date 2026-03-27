@@ -1,4 +1,4 @@
-name: ocean-plastic-assimilator
+name: ocean-plastic-assimilator-fresh
 channels:
   - conda-forge
   - defaults
@@ -7,7 +7,7 @@ dependencies:
   - netcdf4
   - pandas
   - seaborn
-  - python=3.8
+  - python=3.14
   - numba
   - black
   - flake8
@@ -19,4 +19,4 @@ dependencies:
   - matplotlib
   - pip:
     - wget
-prefix: C:\ProgramData\Miniconda3\envs\ocean-plastic-assimilator
+prefix: C:\ProgramData\Miniconda3\envs\ocean-plastic-assimilator-fresh

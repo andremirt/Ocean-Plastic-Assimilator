@@ -12,9 +12,9 @@ class CSV_Logger:
         return
 
     def flush(self):
-        self.df = self.df.append(self.currentLog, ignore_index=True)
+        new_row = pd.DataFrame([self.currentLog])
+        self.df = pd.concat([self.df, new_row], ignore_index=True)
         self.currentLog.clear()
-        return
 
     def export_csv(self):
         self.df.to_csv(self.path + ".csv")
