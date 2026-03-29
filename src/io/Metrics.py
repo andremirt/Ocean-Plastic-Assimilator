@@ -3,7 +3,6 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
-import netCDF4 as nc
 
 from src.io.file_utils import create_folder
 from src.io.CSV_Logger import CSV_Logger
@@ -18,6 +17,9 @@ class Metrics:
         simulation_duration: int,
         observation_type: ObservationsType,
         grid_coords: RectGridCoords,
+        parts_ref_lon: Optional[np.ndarray] = None,
+        parts_ref_lat: Optional[np.ndarray] = None,
+        weights_ref: Optional[np.ndarray] = None,
     ):
         self.output_dir_path = output_dir_path
 
@@ -27,6 +29,9 @@ class Metrics:
         self.min_densities_error = 0
         self.observation_type = observation_type
         self.grid_coords = grid_coords
+        self.parts_ref_lon = parts_ref_lon
+        self.parts_ref_lat = parts_ref_lat
+        self.weights_ref = weights_ref
 
         self.weights_means = []
         self.weights_sum = []
@@ -49,35 +54,24 @@ class Metrics:
         parts_lon: np.ndarray,
         parts_lat: np.ndarray,
         t: int,
-        parts_original_path: str,
     ):
         avgs_densities = np.average(densities_ensemble[:, :, :, t], axis=0)
 
         parts_lon_lats = np.column_stack((parts_lon[:, t], parts_lat[:, t]))
-        valid_lon_lats = (
-            (self.grid_coords.x1 <= parts_lon_lats[:, 0])
-            & (self.grid_coords.x2 > parts_lon_lats[:, 0])
-            & (self.grid_coords.y1 <= parts_lon_lats[:, 1])
-            & (self.grid_coords.y2 > parts_lon_lats[:, 1])
-        )
+        valid_lon_lats = self._compute_valid_lon_lats(parts_lon_lats)
 
         avg_weights = np.average(weights_ensemble[:, valid_lon_lats], axis=0)
-        avg_weights = np.ma.filled(avg_weights, 0.0) if np.ma.isMaskedArray(avg_weights) else avg_weights
-        
-        if parts_original_path is not None:
-            ds_ref = nc.Dataset(parts_original_path, "r")
-            parts_ref_lon = ds_ref["lon"]
-            parts_ref_lat = ds_ref["lat"]
+
+        if (
+            self.parts_ref_lon is not None
+            and self.parts_ref_lat is not None
+            and self.weights_ref is not None
+        ):
             parts_ref_lon_lats = np.column_stack(
-                (parts_ref_lon[:, t], parts_ref_lat[:, t])
+                (self.parts_ref_lon[:, t], self.parts_ref_lat[:, t])
             )
-            valid_ref_lon_lats = (
-                (self.grid_coords.x1 <= parts_ref_lon_lats[:, 0])
-                & (self.grid_coords.x2 > parts_ref_lon_lats[:, 0])
-                & (self.grid_coords.y1 <= parts_ref_lon_lats[:, 1])
-                & (self.grid_coords.y2 > parts_ref_lon_lats[:, 1])
-            )
-            weights_ref_sum = np.sum(ds_ref["weight"][valid_ref_lon_lats])
+            valid_ref_lon_lats = self._compute_valid_lon_lats(parts_ref_lon_lats)
+            weights_ref_sum = np.sum(self.weights_ref[valid_ref_lon_lats])
         else:
             weights_ref_sum = 1
 
@@ -86,7 +80,6 @@ class Metrics:
             if densities_ref is not None
             else avgs_densities - self.avgs_densities_complete_original[:, :, t]
         )
-        densities_difference = np.ma.filled(densities_difference, 0.0) if np.ma.isMaskedArray(densities_difference) else densities_difference
 
         self.max_densities_error = max(
             self.max_densities_error, densities_difference.max()
@@ -119,6 +112,14 @@ class Metrics:
         self.densities_err_stddev.append(np.std(densities_difference))
         self.densities_rmse.append(current_rmse)
 
+    def _compute_valid_lon_lats(self, lon_lats: np.ndarray):
+        return (
+            (self.grid_coords.x1 <= lon_lats[:, 0])
+            & (self.grid_coords.x2 > lon_lats[:, 0])
+            & (self.grid_coords.y1 <= lon_lats[:, 1])
+            & (self.grid_coords.y2 > lon_lats[:, 1])
+        )
+
     def plot_metrics(
         self,
         densities_ensemble: np.ndarray,
@@ -150,8 +151,6 @@ class Metrics:
     ):
         # Init plot
         fig, axs = plt.subplots(nrows=2, ncols=3, figsize=(20, 10))
-
-        weights_ensemble = np.ma.filled(weights_ensemble, 0.0) if np.ma.isMaskedArray(weights_ensemble) else weights_ensemble
 
         # Compute fields
         avgs_densities = np.average(densities_ensemble[:, :, :, t], axis=0)

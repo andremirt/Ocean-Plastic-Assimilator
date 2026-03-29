@@ -1,7 +1,9 @@
 import matplotlib.pyplot as plt
 import netCDF4 as nc
+import numpy as np
 import pandas as pd
 from src.io.Metrics import Metrics
+from src.io.array_utils import to_dense_array
 from src.assimilation.sampling import sample_observations
 from src.assimilation.assimilate import assimilate
 
@@ -12,20 +14,36 @@ def start_simulation(datapaths: AssimilatorDataPaths, config: AssimilatorConfig)
     if config.verbose:
         print("Opening necessary datasets")
     ds_parts_ensembles = nc.Dataset(datapaths.ds_parts_ensemble, "r")
-    weights = ds_parts_ensembles["weight"][:, :]
-    parts_lon = ds_parts_ensembles["lon"][:, :]
-    parts_lat = ds_parts_ensembles["lat"][:, :]
+    weights = to_dense_array(ds_parts_ensembles["weight"][:, :], 0.0)
+    parts_lon = to_dense_array(ds_parts_ensembles["lon"][:, :], np.nan)
+    parts_lat = to_dense_array(ds_parts_ensembles["lat"][:, :], np.nan)
     ds_parts_ensembles.close()
 
     ds_densities_ensemble = nc.Dataset(datapaths.ds_densities_ensemble, "r")
-    densities_ensemble = ds_densities_ensemble["density"][:, :, :, :]
+    densities_ensemble = to_dense_array(ds_densities_ensemble["density"][:, :, :, :], 0.0)
     ds_densities_ensemble.close()
+
+    parts_ref_lon = None
+    parts_ref_lat = None
+    weights_ref = None
 
     if config.observations.type == ObservationsType.from_simulation:
         if config.verbose:
             print("Getting reference data")
         ds_densities_ref = nc.Dataset(datapaths.ds_densities_ref)
-        densities_ref = ds_densities_ref["density"][:, :, :]
+        densities_ref = to_dense_array(ds_densities_ref["density"][:, :, :], 0.0)
+        ds_densities_ref.close()
+
+        ds_parts_ref = nc.Dataset(config.observations.ds_reference_path, "r")
+        parts_ref_lon = to_dense_array(ds_parts_ref["lon"][:, :], np.nan)
+        parts_ref_lat = to_dense_array(ds_parts_ref["lat"][:, :], np.nan)
+
+        try:
+            weights_ref = to_dense_array(ds_parts_ref["weight"][:], 0.0)
+        except KeyError:
+            weights_ref = np.ones(parts_ref_lon.shape[0], dtype=np.float64)
+
+        ds_parts_ref.close()
     else:
         densities_ref = None
 
@@ -39,6 +57,9 @@ def start_simulation(datapaths: AssimilatorDataPaths, config: AssimilatorConfig)
         config.max_time,
         config.observations.type,
         config.grid_coords,
+        parts_ref_lon=parts_ref_lon,
+        parts_ref_lat=parts_ref_lat,
+        weights_ref=weights_ref,
     )
     metrics.log_metrics(
         densities_ensemble,
@@ -47,9 +68,6 @@ def start_simulation(datapaths: AssimilatorDataPaths, config: AssimilatorConfig)
         parts_lon,
         parts_lat,
         config.t_start,
-        parts_original_path=config.observations.ds_reference_path
-        if config.observations.type == ObservationsType.from_simulation
-        else None,
     )
 
     # =================================================== ITERATIONS ========================================================
@@ -101,9 +119,6 @@ def start_simulation(datapaths: AssimilatorDataPaths, config: AssimilatorConfig)
                 parts_lon,
                 parts_lat,
                 t + 1,
-                parts_original_path=config.observations.ds_reference_path
-                if config.observations.type == ObservationsType.from_simulation
-                else None,
             )
             if (t - config.t_start) % config.graph_plot_period == 0:
                 if config.verbose:

@@ -1,10 +1,13 @@
 import numpy as np
-from math import floor
 import netCDF4 as nc
 from numba import njit, prange
-from numba.typed import List
 
-from src.assimilation.density_preparation import prepare_density_inputs
+from src.assimilation.density_preparation import (
+    build_particle_csr,
+    prepare_cell_ids_for_time,
+    prepare_density_inputs,
+)
+from src.io.array_utils import to_dense_array
 from src.types import RectGridCoords
 
 
@@ -14,58 +17,16 @@ def compute_particle_ids_for_areas(
     t: int,
     grid_coords: RectGridCoords,
 ):
-    particle_ids_for_areas = List()
-    for i in range(grid_coords.max_lon_id):
-        l1 = List()
-        for j in range(grid_coords.max_lat_id):
-            l2 = List()
-            l2.append(0)
-            l2.remove(0)
-            l1.append(l2)
-        particle_ids_for_areas.append(l1)
-
     lons = parts_lon[:, t]
     lats = parts_lat[:, t]
 
-    lons = np.ma.filled(lons, 0.0) if np.ma.isMaskedArray(lons) else lons
-    lats = np.ma.filled(lats, 0.0) if np.ma.isMaskedArray(lats) else lats
-
-    return accelerated_cpfa(
+    cell_ids, n_cells = prepare_cell_ids_for_time(
         lons,
         lats,
-        particle_ids_for_areas,
-        x1=grid_coords.x1,
-        x2=grid_coords.x2,
-        y1=grid_coords.y1,
-        y2=grid_coords.y2,
-        spacing_x=grid_coords.spacing_x,
-        spacing_y=grid_coords.spacing_y,
+        grid_coords,
     )
 
-
-@njit
-def accelerated_cpfa(
-    lons: np.ndarray,
-    lats: np.ndarray,
-    particle_ids_for_areas: List,
-    x1: int,
-    x2: int,
-    y1: int,
-    y2: int,
-    spacing_x: float,
-    spacing_y: float,
-):
-    for i in range(len(lons)):
-        lon = lons[i]
-        lat = lats[i]
-
-        if y1 <= lat < y2 and x1 <= lon < x2:
-            lonId = floor((lon - x1) / spacing_x)
-            latId = floor((lat - y1) / spacing_y)
-
-            particle_ids_for_areas[lonId][latId].append(i)
-
-    return particle_ids_for_areas
+    return build_particle_csr(cell_ids, n_cells)
 
 
 def compute_densities(
@@ -79,15 +40,13 @@ def compute_densities(
     nbPart = ds_in["p_id"].shape[0]
     ds_out = nc.Dataset(ds_out_path, "r+")
 
-    lons = ds_in.variables["lon"][:, T]
-    lats = ds_in.variables["lat"][:, T]
+    lons = to_dense_array(ds_in.variables["lon"][:, T], np.nan)
+    lats = to_dense_array(ds_in.variables["lat"][:, T], np.nan)
 
     try:
-        weights = ds_in.variables["weight"][:]
+        weights = to_dense_array(ds_in.variables["weight"][:], 0.0)
     except KeyError:
         weights = np.ones(nbPart, dtype=np.float64)
-
-    weights = np.ma.filled(weights, 0.0) if np.ma.isMaskedArray(weights) else weights
 
     cell_ids, inv_cells_area_flat, n, p, n_cells = prepare_density_inputs(
         lons,

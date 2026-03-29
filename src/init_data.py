@@ -3,6 +3,7 @@ import numpy as np
 from shutil import copyfile
 
 from src.io.file_utils import create_folder
+from src.io.array_utils import to_dense_array
 from src.assimilation.density_computations import compute_densities
 from src.assimilation.density_computations_ensemble import (
     compute_ensemble_densities_over_time,
@@ -33,9 +34,9 @@ def recompute_ensemble_densities(config: AssimilatorConfig, ds_in_path, ds_out_p
     )
 
     ds_parts = nc.Dataset(ds_in_path)
-    weights = ds_parts["weight"][:, :]
-    parts_lon = ds_parts["lon"][:, :]
-    parts_lat = ds_parts["lat"][:, :]
+    weights = to_dense_array(ds_parts["weight"][:, :], 0.0)
+    parts_lon = to_dense_array(ds_parts["lon"][:, :], np.nan)
+    parts_lat = to_dense_array(ds_parts["lat"][:, :], np.nan)
     ds_parts.close()
 
     compute_ensemble_densities_over_time(
@@ -94,9 +95,9 @@ def compute_parts_ensemble(datapaths: AssimilatorDataPaths, config: AssimilatorC
 
     # INITIALIZATION : Change total weight
     try:
-        weights = ds_parts_useful["weight"][:]
+        weights = to_dense_array(ds_parts_useful["weight"][:], 0.0)
     except IndexError:
-        weights = np.array([1] * ds_parts_useful["p_id"].shape[0])
+        weights = np.ones(ds_parts_useful["p_id"].shape[0], dtype=np.float64)
     repeated_weights = np.repeat(weights[np.newaxis, :], config.size_ensemble, axis=0)
 
     # Normally randomize weights around the new mean defined with NEW_WEIGHT_RATIO
@@ -111,16 +112,20 @@ def compute_parts_ensemble(datapaths: AssimilatorDataPaths, config: AssimilatorC
     )
     # Copy the rest of the vars from the useful set
     ds_parts_ensembles["p_id"][:] = ds_parts_useful["p_id"][:]
-    ds_parts_ensembles["time"][:] = ds_parts_useful["time"][
-        list(range(config.max_time))
-    ]
-    ds_parts_ensembles["lon"][:, :] = ds_parts_useful["lon"][
-        :, list(range(config.max_time))
-    ]
-    ds_parts_ensembles["lat"][:, :] = ds_parts_useful["lat"][
-        :, list(range(config.max_time))
-    ]
+    ds_parts_ensembles["time"][:] = to_dense_array(
+        ds_parts_useful["time"][list(range(config.max_time))],
+        0.0,
+    )
+    ds_parts_ensembles["lon"][:, :] = to_dense_array(
+        ds_parts_useful["lon"][:, list(range(config.max_time))],
+        np.nan,
+    )
+    ds_parts_ensembles["lat"][:, :] = to_dense_array(
+        ds_parts_useful["lat"][:, list(range(config.max_time))],
+        np.nan,
+    )
 
+    ds_parts_useful.close()
     ds_parts_ensembles.close()
 
 
