@@ -27,7 +27,7 @@ def prepare_density_inputs(
     cell_id_dtype = select_cell_id_dtype(n_cells)
 
     cell_ids = np.full(lons.shape, -1, dtype=cell_id_dtype, order="F")
-    inv_cells_area_flat = 1.0 / np.ravel(cells_area, order="C")
+    inv_cells_area_flat = 1.0 / np.ravel(cells_area, order="F")
 
     inv_spacing_x = 1.0 / grid_coords.spacing_x
     inv_spacing_y = 1.0 / grid_coords.spacing_y
@@ -42,6 +42,7 @@ def prepare_density_inputs(
         grid_coords.y2,
         inv_spacing_x,
         inv_spacing_y,
+        n,
         p,
     )
 
@@ -73,6 +74,7 @@ def prepare_cell_ids_for_time(
         grid_coords.y2,
         inv_spacing_x,
         inv_spacing_y,
+        n,
         p,
     )
 
@@ -94,6 +96,7 @@ def _fill_cell_ids(
     y2,
     inv_spacing_x,
     inv_spacing_y,
+    n,
     p,
 ):
     nb_part, T = lons.shape
@@ -106,7 +109,7 @@ def _fill_cell_ids(
             if x1 <= lon < x2 and y1 <= lat < y2:
                 lon_id = int((lon - x1) * inv_spacing_x)
                 lat_id = int((lat - y1) * inv_spacing_y)
-                cell_ids[i, t] = lon_id * p + lat_id
+                cell_ids[i, t] = lon_id + n * lat_id
 
 
 @njit
@@ -120,6 +123,7 @@ def _fill_cell_ids_for_time(
     y2,
     inv_spacing_x,
     inv_spacing_y,
+    n,
     p,
 ):
     nb_part = lons.shape[0]
@@ -131,7 +135,7 @@ def _fill_cell_ids_for_time(
         if x1 <= lon < x2 and y1 <= lat < y2:
             lon_id = int((lon - x1) * inv_spacing_x)
             lat_id = int((lat - y1) * inv_spacing_y)
-            cell_ids[i] = lon_id * p + lat_id
+            cell_ids[i] = lon_id + n * lat_id
 
 
 @njit

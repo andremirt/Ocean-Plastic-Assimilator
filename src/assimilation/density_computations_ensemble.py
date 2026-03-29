@@ -83,7 +83,7 @@ def compute_ensemble_densities_over_parts(
     p = grid_coords.max_lat_id
     n_cells = n * p
 
-    inv_cells_area_flat = 1.0 / np.ravel(cells_area, order="C")
+    inv_cells_area_flat = 1.0 / np.ravel(cells_area, order="F")
     densities_flat = np.zeros(
         (n_cells, weights.shape[0]),
         dtype=np.float64,

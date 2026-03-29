@@ -174,11 +174,11 @@ def update_weights(
     modifiedIndices,
     particle_offsets,
     particle_ids,
-    max_lat_id,
+    max_lon_id,
 ):
     for xy in modifiedIndices:
         x, y = xy
-        cell_id = x * max_lat_id + y
+        cell_id = x + max_lon_id * y
         start = particle_offsets[cell_id]
         end = particle_offsets[cell_id + 1]
 
@@ -276,7 +276,7 @@ def assimilate(
         modifiedIndices,
         particle_offsets,
         particle_ids,
-        config.grid_coords.max_lat_id,
+        config.grid_coords.max_lon_id,
     )
 
     if config.verbose:
