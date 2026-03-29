@@ -56,7 +56,7 @@ def start_simulation(datapaths: AssimilatorDataPaths, config: AssimilatorConfig)
 
     try:
         print("Start iterating")
-        for t in range(config.t_start, config.t_end):
+        for t in range(config.t_start, 10):
             print("=================================================")
             print(
                 f"Start iteration {t - config.t_start + 1} / {config.t_end - config.t_start}"

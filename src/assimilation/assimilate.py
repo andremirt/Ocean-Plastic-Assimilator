@@ -172,11 +172,20 @@ def update_weights(
     densities_ensemble,
     densities_ensemble_predicted,
     modifiedIndices,
-    particleIdsForAreas,
+    particle_offsets,
+    particle_ids,
+    max_lat_id,
 ):
     for xy in modifiedIndices:
         x, y = xy
-        particles = particleIdsForAreas[x][y]
+        cell_id = x * max_lat_id + y
+        start = particle_offsets[cell_id]
+        end = particle_offsets[cell_id + 1]
+
+        if start == end:
+            continue
+
+        particles = particle_ids[start:end]
 
         totalWeight_predicted = densities_ensemble_predicted[:, x, y]
         totalWeight_corrected = densities_ensemble[:, x, y, t_observation]
@@ -211,7 +220,7 @@ def assimilate(
 
     if config.verbose:
         print("Computing particleIdsForAreas")
-    particleIdsForAreas = compute_particle_ids_for_areas(
+    particle_offsets, particle_ids = compute_particle_ids_for_areas(
         parts_lon, parts_lat, t_observation, config.grid_coords
     )
 
@@ -261,16 +270,19 @@ def assimilate(
         densities_ensemble,
         densities_ensemble_predicted,
         modifiedIndices,
-        particleIdsForAreas,
+        particle_offsets,
+        particle_ids,
+        config.grid_coords.max_lat_id,
     )
 
     if config.verbose:
         print("Recomputing densities for next day")
-    particleIdsForAreas = compute_particle_ids_for_areas(
+    particle_offsets, particle_ids = compute_particle_ids_for_areas(
         parts_lon, parts_lat, t_observation + 1, config.grid_coords
     )
     compute_ensemble_densities_over_parts(
-        particleIdsForAreas,
+        particle_offsets,
+        particle_ids,
         densities_ensemble,
         weights,
         config.grid_coords,
