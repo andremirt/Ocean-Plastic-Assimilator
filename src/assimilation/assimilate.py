@@ -190,9 +190,13 @@ def update_weights(
         totalWeight_predicted = densities_ensemble_predicted[:, x, y]
         totalWeight_corrected = densities_ensemble[:, x, y, t_observation]
         weights_predicted = np.moveaxis(weights[:, particles], 0, 1)
-        weights_corrected = weights_predicted * (
-            totalWeight_corrected / totalWeight_predicted
+        scaling = np.ones_like(totalWeight_corrected)
+        nonzero_predicted = totalWeight_predicted != 0
+        scaling[nonzero_predicted] = (
+            totalWeight_corrected[nonzero_predicted]
+            / totalWeight_predicted[nonzero_predicted]
         )
+        weights_corrected = weights_predicted * scaling
         weights[:, particles] = np.moveaxis(weights_corrected, 0, 1)
 
 

@@ -7,6 +7,7 @@ from src.assimilation.density_preparation import (
     prepare_cell_ids_for_time,
     prepare_density_inputs,
 )
+from src.io.array_utils import to_dense_array
 from src.types import RectGridCoords
 
 
@@ -39,15 +40,13 @@ def compute_densities(
     nbPart = ds_in["p_id"].shape[0]
     ds_out = nc.Dataset(ds_out_path, "r+")
 
-    lons = ds_in.variables["lon"][:, T]
-    lats = ds_in.variables["lat"][:, T]
+    lons = to_dense_array(ds_in.variables["lon"][:, T], np.nan)
+    lats = to_dense_array(ds_in.variables["lat"][:, T], np.nan)
 
     try:
-        weights = ds_in.variables["weight"][:]
+        weights = to_dense_array(ds_in.variables["weight"][:], 0.0)
     except KeyError:
         weights = np.ones(nbPart, dtype=np.float64)
-
-    weights = np.ma.filled(weights, 0.0) if np.ma.isMaskedArray(weights) else weights
 
     cell_ids, inv_cells_area_flat, n, p, n_cells = prepare_density_inputs(
         lons,

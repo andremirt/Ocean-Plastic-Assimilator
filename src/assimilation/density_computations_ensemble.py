@@ -19,8 +19,6 @@ def compute_ensemble_densities_over_time(
     lons = parts_lon[:, T]
     lats = parts_lat[:, T]
 
-    weights = np.ma.filled(weights, 0.0) if np.ma.isMaskedArray(weights) else weights
-
     nbParts = parts_lon.shape[0]
 
     cell_ids, inv_cells_area_flat, n, p, n_cells = prepare_density_inputs(
@@ -84,8 +82,6 @@ def compute_ensemble_densities_over_parts(
     n = grid_coords.max_lon_id
     p = grid_coords.max_lat_id
     n_cells = n * p
-
-    weights = np.ma.filled(weights, 0.0) if np.ma.isMaskedArray(weights) else weights
 
     inv_cells_area_flat = 1.0 / np.ravel(cells_area, order="C")
     densities_flat = np.zeros(

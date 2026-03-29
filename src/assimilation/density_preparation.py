@@ -32,39 +32,18 @@ def prepare_density_inputs(
     inv_spacing_x = 1.0 / grid_coords.spacing_x
     inv_spacing_y = 1.0 / grid_coords.spacing_y
 
-    if np.ma.isMaskedArray(lons) or np.ma.isMaskedArray(lats):
-        lon_data = np.ma.getdata(lons)
-        lat_data = np.ma.getdata(lats)
-        lon_mask = np.ma.getmaskarray(lons)
-        lat_mask = np.ma.getmaskarray(lats)
-
-        _fill_cell_ids_with_masks(
-            cell_ids,
-            lon_data,
-            lat_data,
-            lon_mask,
-            lat_mask,
-            grid_coords.x1,
-            grid_coords.x2,
-            grid_coords.y1,
-            grid_coords.y2,
-            inv_spacing_x,
-            inv_spacing_y,
-            p,
-        )
-    else:
-        _fill_cell_ids(
-            cell_ids,
-            lons,
-            lats,
-            grid_coords.x1,
-            grid_coords.x2,
-            grid_coords.y1,
-            grid_coords.y2,
-            inv_spacing_x,
-            inv_spacing_y,
-            p,
-        )
+    _fill_cell_ids(
+        cell_ids,
+        lons,
+        lats,
+        grid_coords.x1,
+        grid_coords.x2,
+        grid_coords.y1,
+        grid_coords.y2,
+        inv_spacing_x,
+        inv_spacing_y,
+        p,
+    )
 
     return cell_ids, inv_cells_area_flat, n, p, n_cells
 
@@ -84,39 +63,18 @@ def prepare_cell_ids_for_time(
     inv_spacing_x = 1.0 / grid_coords.spacing_x
     inv_spacing_y = 1.0 / grid_coords.spacing_y
 
-    if np.ma.isMaskedArray(lons) or np.ma.isMaskedArray(lats):
-        lon_data = np.ma.getdata(lons)
-        lat_data = np.ma.getdata(lats)
-        lon_mask = np.ma.getmaskarray(lons)
-        lat_mask = np.ma.getmaskarray(lats)
-
-        _fill_cell_ids_for_time_with_masks(
-            cell_ids,
-            lon_data,
-            lat_data,
-            lon_mask,
-            lat_mask,
-            grid_coords.x1,
-            grid_coords.x2,
-            grid_coords.y1,
-            grid_coords.y2,
-            inv_spacing_x,
-            inv_spacing_y,
-            p,
-        )
-    else:
-        _fill_cell_ids_for_time(
-            cell_ids,
-            lons,
-            lats,
-            grid_coords.x1,
-            grid_coords.x2,
-            grid_coords.y1,
-            grid_coords.y2,
-            inv_spacing_x,
-            inv_spacing_y,
-            p,
-        )
+    _fill_cell_ids_for_time(
+        cell_ids,
+        lons,
+        lats,
+        grid_coords.x1,
+        grid_coords.x2,
+        grid_coords.y1,
+        grid_coords.y2,
+        inv_spacing_x,
+        inv_spacing_y,
+        p,
+    )
 
     return cell_ids, n_cells
 
@@ -151,37 +109,6 @@ def _fill_cell_ids(
                 cell_ids[i, t] = lon_id * p + lat_id
 
 
-@njit(parallel=True)
-def _fill_cell_ids_with_masks(
-    cell_ids,
-    lons,
-    lats,
-    lon_mask,
-    lat_mask,
-    x1,
-    x2,
-    y1,
-    y2,
-    inv_spacing_x,
-    inv_spacing_y,
-    p,
-):
-    nb_part, T = lons.shape
-
-    for t in prange(T):
-        for i in range(nb_part):
-            if lon_mask[i, t] or lat_mask[i, t]:
-                continue
-
-            lon = lons[i, t]
-            lat = lats[i, t]
-
-            if x1 <= lon < x2 and y1 <= lat < y2:
-                lon_id = int((lon - x1) * inv_spacing_x)
-                lat_id = int((lat - y1) * inv_spacing_y)
-                cell_ids[i, t] = lon_id * p + lat_id
-
-
 @njit
 def _fill_cell_ids_for_time(
     cell_ids,
@@ -198,36 +125,6 @@ def _fill_cell_ids_for_time(
     nb_part = lons.shape[0]
 
     for i in range(nb_part):
-        lon = lons[i]
-        lat = lats[i]
-
-        if x1 <= lon < x2 and y1 <= lat < y2:
-            lon_id = int((lon - x1) * inv_spacing_x)
-            lat_id = int((lat - y1) * inv_spacing_y)
-            cell_ids[i] = lon_id * p + lat_id
-
-
-@njit
-def _fill_cell_ids_for_time_with_masks(
-    cell_ids,
-    lons,
-    lats,
-    lon_mask,
-    lat_mask,
-    x1,
-    x2,
-    y1,
-    y2,
-    inv_spacing_x,
-    inv_spacing_y,
-    p,
-):
-    nb_part = lons.shape[0]
-
-    for i in range(nb_part):
-        if lon_mask[i] or lat_mask[i]:
-            continue
-
         lon = lons[i]
         lat = lats[i]
 
