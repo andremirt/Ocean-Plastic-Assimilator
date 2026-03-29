@@ -3,19 +3,45 @@ from typing import Dict, Optional, Tuple, List
 import numpy as np
 import netCDF4 as nc
 from datetime import datetime
+import configparser
+import os
 
 import pandas as pd
 
-from src.assimilation.start_simulation import start_simulation
-from src.init_data import init_data
 from src.types import (
     AssimilatorConfig,
     AssimilatorDataPaths,
+    ComputeConfig,
     ObservationsFromCSVConfig,
     ObservationsFromSimulationConfig,
     ObservationsType,
     RectGridCoords,
 )
+
+compute_config_path = "./compute.config"
+compute_config_parser = configparser.ConfigParser()
+compute_config_parser.read(compute_config_path)
+
+compute_config = ComputeConfig(
+    thread_count=compute_config_parser.getint("compute", "thread_count", fallback=1),
+    threading_layer=compute_config_parser.get("compute", "threading_layer", fallback="omp"),
+    omp_proc_bind=compute_config_parser.get("compute", "omp_proc_bind", fallback="close"),
+    omp_places=compute_config_parser.get("compute", "omp_places", fallback="cores"),
+)
+
+if compute_config.threading_layer == "omp":
+    os.environ["NUMBA_THREADING_LAYER"] = "omp"
+    os.environ["NUMBA_NUM_THREADS"] = str(compute_config.thread_count)
+    os.environ["OMP_NUM_THREADS"] = str(compute_config.thread_count)
+    os.environ["OMP_PROC_BIND"] = str(compute_config.omp_proc_bind)
+    os.environ["OMP_PLACES"] = str(compute_config.omp_places)
+
+elif compute_config.threading_layer == "tbb":
+    os.environ["NUMBA_THREADING_LAYER"] = "tbb"
+    os.environ["NUMBA_NUM_THREADS"] = str(compute_config.thread_count)
+
+from src.assimilation.start_simulation import start_simulation
+from src.init_data import init_data
 
 PARTICLES_DS_VARIABLES = ["p_id", "lon", "lat", "time"]
 

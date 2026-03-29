@@ -6,4 +6,4 @@ movie_making/*
 desktop.ini
 .DS_Store
 data/
-.ipynb_checkpoints/
+*.ipynb_checkpoints*
