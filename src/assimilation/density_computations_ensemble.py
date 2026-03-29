@@ -1,8 +1,10 @@
 from typing import List
 from numba.core.decorators import njit
+from numba import prange
 import numba.typed as nbt
 import numpy as np
 
+from src.assimilation.density_preparation import prepare_density_inputs
 from src.types import RectGridCoords
 
 
@@ -18,50 +20,57 @@ def compute_ensemble_densities_over_time(
     lons = parts_lon[:, T]
     lats = parts_lat[:, T]
 
-    lons = np.ma.filled(lons, 0.0) if np.ma.isMaskedArray(lons) else lons
-    lats = np.ma.filled(lats, 0.0) if np.ma.isMaskedArray(lats) else lats
     weights = np.ma.filled(weights, 0.0) if np.ma.isMaskedArray(weights) else weights
 
     nbParts = parts_lon.shape[0]
 
-    lon_ids_for_all_parts = np.floor(
-        (lons - grid_coords.x1) / grid_coords.spacing_x
-    ).astype(int)
-    lat_ids_for_all_parts = np.floor(
-        (lats - grid_coords.y1) / grid_coords.spacing_y
-    ).astype(int)
-
-    densities = llvm_compute_ensemble_densities_over_time(
-        lon_ids_for_all_parts,
-        lat_ids_for_all_parts,
-        weights,
+    cell_ids, inv_cells_area_flat, n, p, n_cells = prepare_density_inputs(
+        lons,
+        lats,
+        grid_coords,
         cells_area,
+    )
+
+    densities_flat = np.zeros(
+        (n_cells, len(T), weights.shape[0]),
+        dtype=np.float64,
+        order="F",
+    )
+
+    llvm_compute_ensemble_densities_over_time(
+        cell_ids,
+        weights,
+        inv_cells_area_flat,
+        densities_flat,
         nbParts,
-        grid_coords.max_lon_id,
-        grid_coords.max_lat_id,
+        n_cells,
         len(T),
         weights.shape[0],
     )
 
+    densities = densities_flat.reshape((n, p, len(T), weights.shape[0]), order="F")
     all_densities[:, :, :, T] = np.moveaxis(densities, -1, 0)
 
-
-@njit
+@njit(parallel=True)
 def llvm_compute_ensemble_densities_over_time(
-    lon_ids_for_all_parts, lat_ids_for_all_parts, weights, cells_area, nbParts, n, p, T, size_e
+    cell_ids,
+    weights,
+    inv_cells_area_flat,
+    densities_flat,
+    nbParts,
+    n_cells,
+    T,
+    size_e,
 ):
-    densities = np.zeros((n, p, T, size_e))
+    for e in range(size_e):
+        for t in prange(T):
+            for i in range(nbParts):
+                cell_id = cell_ids[i, t]
 
-    for i in range(nbParts):
-        for t in range(T):
-            lonId = lon_ids_for_all_parts[i, t]
-            latId = lat_ids_for_all_parts[i, t]
-
-            if lonId >= 0 and lonId < n and latId >= 0 and latId < p:
-                for e in range(size_e):
-                    densities[lonId, latId, t, e] += weights[e, i] / cells_area[lonId, latId]
-
-    return densities
+                if 0 <= cell_id < n_cells:
+                    densities_flat[cell_id, t, e] += (
+                        weights[e, i] * inv_cells_area_flat[cell_id]
+                    )
 
 
 def compute_ensemble_densities_over_parts(

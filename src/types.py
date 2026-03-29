@@ -72,3 +72,12 @@ class AssimilatorConfig:
     verbose: bool
     observations: Union[ObservationsFromCSVConfig, ObservationsFromSimulationConfig]
     cells_area: np.ndarray
+    
+@dataclass
+class ComputeConfig:
+    """Dataclass to store Assimilator configuration variables"""
+
+    thread_count: int
+    threading_layer: str
+    omp_proc_bind: str
+    omp_places : str

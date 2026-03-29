@@ -1,9 +1,10 @@
 import numpy as np
 from math import floor
 import netCDF4 as nc
-from numba import njit
+from numba import njit, prange
 from numba.typed import List
 
+from src.assimilation.density_preparation import prepare_density_inputs
 from src.types import RectGridCoords
 
 
@@ -83,51 +84,42 @@ def compute_densities(
 
     try:
         weights = ds_in.variables["weight"][:]
-        weights = np.ma.filled(weights, np.zeros)
     except KeyError:
-        weights = np.array([1] * nbPart)
+        weights = np.ones(nbPart, dtype=np.float64)
 
-    lons = np.ma.filled(lons, 0.0) if np.ma.isMaskedArray(lons) else lons
-    lats = np.ma.filled(lats, 0.0) if np.ma.isMaskedArray(lats) else lats
     weights = np.ma.filled(weights, 0.0) if np.ma.isMaskedArray(weights) else weights
 
-    lon_ids_for_all_parts = np.floor(
-        (lons - grid_coords.x1) / grid_coords.spacing_x
-    ).astype(int)
-    lat_ids_for_all_parts = np.floor(
-        (lats - grid_coords.y1) / grid_coords.spacing_y
-    ).astype(int)
-
-    densities = llvm_compute_densities(
-        nbPart,
-        lon_ids_for_all_parts,
-        lat_ids_for_all_parts,
-        weights,
+    cell_ids, inv_cells_area_flat, n, p, n_cells = prepare_density_inputs(
+        lons,
+        lats,
+        grid_coords,
         cells_area,
-        grid_coords.max_lon_id,
-        grid_coords.max_lat_id,
+    )
+
+    densities_flat = np.zeros((n_cells, len(T)), dtype=np.float64, order="F")
+
+    llvm_compute_densities(
+        nbPart,
+        cell_ids,
+        weights,
+        inv_cells_area_flat,
+        densities_flat,
+        n_cells,
         len(T),
     )
 
-    ds_out["density"][:, :, T] = densities[:, :, T]
+    densities = densities_flat.reshape((n, p, len(T)), order="F")
+    ds_out["density"][:, :, T] = densities
+    ds_out.close()
+    ds_in.close()
 
-
-@njit
+@njit(parallel=True)
 def llvm_compute_densities(
-    nbPart, lon_ids_for_all_parts, lat_ids_for_all_parts, weights, cells_area, n, p, T
+    nbPart, cell_ids, weights, inv_cells_area_flat, densities_flat, n_cells, T
 ):
-    densities = np.zeros((n, p, T))
+    for t in prange(T):
+        for i in range(nbPart):
+            cell_id = cell_ids[i, t]
 
-    for i in range(nbPart):
-        for t in range(T):
-            lonId = lon_ids_for_all_parts[i, t]
-            latId = lat_ids_for_all_parts[i, t]
-
-            if lonId >= 0 and lonId < n and latId >= 0 and latId < p:
-                densities[
-                    lonId,
-                    latId,
-                    t,
-                ] += weights[i] / cells_area[lonId, latId]
-
-    return densities
+            if 0 <= cell_id < n_cells:
+                densities_flat[cell_id, t] += weights[i] * inv_cells_area_flat[cell_id]

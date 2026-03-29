@@ -1,6 +1,6 @@
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.4740408.svg)](https://doi.org/10.5281/zenodo.4740408)
 
-# Ocean Plastic Assimilator - v0.2
+# Ocean Plastic Assimilator - v0.2.1
 
 This repository contains the code of the Ocean Plastic Assimilator, a program to perform data assimilation on a dispersion of particles.
 
@@ -40,3 +40,9 @@ Follow the instructions in the notebook `examples.ipynb` to run the experiments 
 ## A. Notebooks used to generate figures for the GMD paper
 
 These notebooks are in the `analysis/` folder.
+
+## B. Compute acceleration
+
+Use [compute.config](compute.config) to configure parallel execution. The main settings are `thread_count`, which controls the number of threads, and `threading_layer`, which selects the Numba threading backend. By default, the project uses `omp`.
+
+On Intel hybrid-core systems, `tbb` may provide better load balancing than `omp`, provided that Intel oneAPI/TBB is installed. In that case, try setting `threading_layer = tbb`.
