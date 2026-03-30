@@ -2,40 +2,38 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 
+from src.assimilation.cell_indexing import flatten_cell_indices
 from src.types import RectGridCoords
 
 
 def create_localization_matrix(
     grid_coords: RectGridCoords, observations: pd.DataFrame, radius_observation: int
 ):
-    localization_matrix = np.ones(
-        (
-            grid_coords.max_lon_id,
-            grid_coords.max_lat_id,
-            grid_coords.max_lon_id,
-            grid_coords.max_lat_id,
-        )
-    )
+    n = grid_coords.max_lon_id
+    p = grid_coords.max_lat_id
+    n_cells = n * p
 
-    for observation in observations[["lon_id", "lat_id"]].itertuples():
+    obs_lon_ids = observations["lon_id"].to_numpy(dtype=np.int64, copy=False)
+    obs_lat_ids = observations["lat_id"].to_numpy(dtype=np.int64, copy=False)
+    obs_cell_ids = flatten_cell_indices(obs_lon_ids, obs_lat_ids, n)
 
-        def loc_factor(x1, y1, x2, y2):
-            return max(
-                1 - np.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2) / radius_observation,
-                0,
-            )
+    if len(observations) == 0:
+        return np.empty((n_cells, 0), dtype=np.float64), obs_cell_ids
 
-        localization_matrix[:, :, observation.lon_id, observation.lat_id] = np.array(
-            [
-                [
-                    loc_factor(x, y, observation.lon_id, observation.lat_id)
-                    for y in range(grid_coords.max_lat_id)
-                ]
-                for x in range(grid_coords.max_lon_id)
-            ]
-        )
+    x_ids, y_ids = np.meshgrid(np.arange(n), np.arange(p), indexing="ij")
+    flat_x_ids = x_ids.ravel(order="F")
+    flat_y_ids = y_ids.ravel(order="F")
 
-    return localization_matrix
+    dx = flat_x_ids[:, np.newaxis] - obs_lon_ids[np.newaxis, :]
+    dy = flat_y_ids[:, np.newaxis] - obs_lat_ids[np.newaxis, :]
+    distances = np.sqrt(dx ** 2 + dy ** 2)
+
+    if radius_observation == 0:
+        localization_matrix = (distances == 0).astype(np.float64)
+    else:
+        localization_matrix = np.maximum(1 - distances / radius_observation, 0.0)
+
+    return localization_matrix, obs_cell_ids
 
 
 def compute_indices_circle(

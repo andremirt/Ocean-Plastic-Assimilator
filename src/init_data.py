@@ -4,8 +4,8 @@ from shutil import copyfile
 
 from src.io.file_utils import create_folder
 from src.io.array_utils import to_dense_array
-from src.assimilation.density_computations import compute_densities
-from src.assimilation.density_computations_ensemble import (
+from src.assimilation.density_computations import (
+    compute_densities,
     compute_ensemble_densities_over_time,
 )
 from src.types import AssimilatorConfig, AssimilatorDataPaths, ObservationsType

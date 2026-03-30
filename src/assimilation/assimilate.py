@@ -1,16 +1,16 @@
 import numpy as np
 import pandas as pd
 
-from src.types import AssimilatorConfig, AssimilatorDataPaths
-from src.assimilation.density_computations import compute_particle_ids_for_areas
-from src.assimilation.density_computations_ensemble import (
+from src.assimilation.cell_indexing import (
+    compute_particle_ids_for_areas,
+    unflatten_cell_index,
+)
+from src.assimilation.density_computations import (
     compute_ensemble_densities_over_parts,
 )
-from src.assimilation.localization import (
-    compute_indices_circle,
-    create_localization_matrix,
-)
+from src.assimilation.localization import create_localization_matrix
 from src.io.plotting import gen_cov_map
+from src.types import AssimilatorConfig, AssimilatorDataPaths
 
 
 def reintroduce_error(densities_ensemble, reinit_spreading: float, t_observation):
@@ -20,66 +20,52 @@ def reintroduce_error(densities_ensemble, reinit_spreading: float, t_observation
         )
 
 
-def compute_covariances_for_point(
-    densities_ensemble, avgs_densities, lon_obs_id, lat_obs_id, t_observation
+def flatten_density_slice(densities: np.ndarray):
+    return np.moveaxis(densities, 0, -1).reshape((-1, densities.shape[0]), order="F").T
+
+
+def unflatten_density_slice(
+    densities_flat: np.ndarray, max_lon_id: int, max_lat_id: int
 ):
-    return (
-        np.sum(
-            (
-                densities_ensemble[:, lon_obs_id, lat_obs_id, t_observation]
-                - avgs_densities[lon_obs_id, lat_obs_id],
-            )
-            * np.moveaxis(
-                densities_ensemble[:, :, :, t_observation] - avgs_densities[:, :],
-                0,
-                -1,
-            ),
-            axis=2,
-        )
-        / (densities_ensemble.shape[0] - 1)
+    return np.moveaxis(
+        densities_flat.T.reshape(
+            (max_lon_id, max_lat_id, densities_flat.shape[0]),
+            order="F",
+        ),
+        -1,
+        0,
     )
 
 
 def compute_covariances(
     t_observation: int,
     avgs_densities: np.ndarray,
-    densities_ensemble: np.ndarray,
+    current_densities_flat: np.ndarray,
     observations: pd.DataFrame,
     localization_matrix: np.ndarray,
+    obs_cell_ids: np.ndarray,
     metrics_dir_path: str,
     config: AssimilatorConfig,
 ):
     n, p = avgs_densities.shape
-    cov = np.zeros((n, p, n, p))
-    modifiedIndices = []
+    avgs_densities_flat = avgs_densities.reshape(-1, order="F")
+    centered_densities = current_densities_flat - avgs_densities_flat[np.newaxis, :]
+    cov = (
+        centered_densities.T @ centered_densities[:, obs_cell_ids]
+        / (current_densities_flat.shape[0] - 1)
+    )
+    cov *= localization_matrix
+    modified_cell_ids = np.flatnonzero(np.any(localization_matrix != 0.0, axis=1))
 
-    for observation in observations.itertuples():
+    for observation_id, observation in enumerate(observations.itertuples()):
         lon_id = observation.lon_id
         lat_id = observation.lat_id
 
         if config.verbose:
             print("Computing covariances relevant for observation at", lon_id, lat_id)
 
-        indices = compute_indices_circle(
-            (lon_id, lat_id), config.radius_observation, n, p
-        )
-        modifiedIndices = list(set.union(set(modifiedIndices), set(indices)))
-
-        cov[:, :, lon_id, lat_id] = (
-            compute_covariances_for_point(
-                densities_ensemble,
-                avgs_densities,
-                lon_id,
-                lat_id,
-                t_observation,
-            )
-            * localization_matrix[:, :, lon_id, lat_id]
-        )
-
         if (t_observation - config.t_start) % config.graph_plot_period == 0:
-            cov_mat_for_plot = np.zeros((n, p))
-            for (x, y) in indices:
-                cov_mat_for_plot[x, y] = cov[x, y, lon_id, lat_id]
+            cov_mat_for_plot = cov[:, observation_id].reshape((n, p), order="F")
             gen_cov_map(
                 cov_mat_for_plot,
                 "cov_mat_t"
@@ -95,75 +81,58 @@ def compute_covariances(
                 metrics_dir_path,
             )
 
-    return cov, modifiedIndices
+    return cov, modified_cell_ids
 
 
-def compute_partial_kalman_gain(cov: np.ndarray, observations: pd.DataFrame):
-    # A = (H * (C o P) * H.T + R) ** -1 * Differences
-    B = np.zeros((len(observations), len(observations)))
-    for i in range(len(observations)):
-        for j in range(len(observations)):
-            lon1, lat1 = observations[["lon_id", "lat_id"]].iloc[i]
-            lon2, lat2 = observations[["lon_id", "lat_id"]].iloc[j]
-            B[i, j] = cov[lon1, lat1, lon2, lat2]
-
-    R = np.diag([(observation.variance) for observation in observations.itertuples()])
-
-    B += R
-
-    return np.linalg.inv(B)
+def compute_innovation_covariance(
+    cov: np.ndarray, obs_cell_ids: np.ndarray, observations: pd.DataFrame
+):
+    innovation_covariance = cov[obs_cell_ids, :].copy()
+    observation_variances = observations["variance"].to_numpy(dtype=np.float64, copy=False)
+    innovation_covariance += np.diag(observation_variances)
+    return innovation_covariance
 
 
 def compute_corrections(
-    t_observation: int,
-    densities_ensemble: np.ndarray,
+    current_densities_flat: np.ndarray,
     cov: np.ndarray,
     observations: pd.DataFrame,
-    Binv: np.ndarray,
-    modifiedIndices: list,
+    innovation_covariance: np.ndarray,
+    obs_cell_ids: np.ndarray,
     verbose: bool,
+    max_lon_id: int,
+    max_lat_id: int,
 ) -> np.ndarray:
-    # Per ensemble correction
-    corrections = np.zeros(
-        (
-            densities_ensemble.shape[0],
-            densities_ensemble.shape[1],
-            densities_ensemble.shape[2],
+    obs_values = observations["value"].to_numpy(dtype=np.float64, copy=False)
+    if obs_values.size == 0:
+        return np.zeros(
+            (current_densities_flat.shape[0], max_lon_id, max_lat_id),
+            dtype=np.float64,
         )
-    )
 
-    obs_lon_ids = np.array(observations.lon_id)
-    obs_lat_ids = np.array(observations.lat_id)
-    obs_values = np.array(observations.value)
+    predicted_observations = current_densities_flat[:, obs_cell_ids].T
+    innovations = obs_values[:, np.newaxis] - predicted_observations
 
-    for e in range(densities_ensemble.shape[0]):
-        to_correct = np.array(
-            [
-                obs_values[i]
-                - densities_ensemble[e, obs_lon_ids[i], obs_lat_ids[i], t_observation]
-                for i in range(len(obs_values))
-            ]
-        )
-        if verbose:
+    if verbose:
+        for e in range(current_densities_flat.shape[0]):
+            to_correct = innovations[:, e]
             print(
                 *[
                     (
-                        f"Observation {obs_values[i]} and prediction {densities_ensemble[e, obs_lon_ids[i], obs_lat_ids[i], t_observation]} gives value to correct {to_correct[i]}"
+                        f"Observation {obs_values[i]} and prediction {predicted_observations[i, e]} gives value to correct {to_correct[i]}"
                     )
                     for i in range(len(obs_values))
                 ]
             )
-        A = np.dot(Binv, to_correct)
 
-        for (x, y) in modifiedIndices:
-            corrections[e, x, y] = sum(
-                [
-                    cov[x, y, obs_lon_ids[i], obs_lat_ids[i]] * A[i]
-                    for i in range(len(obs_values))
-                ]
-            )
+    analysis_increments = np.linalg.solve(innovation_covariance, innovations)
+    corrections_flat = (cov @ analysis_increments).T
 
-    return corrections
+    return unflatten_density_slice(
+        corrections_flat,
+        max_lon_id,
+        max_lat_id,
+    )
 
 
 def update_weights(
@@ -171,14 +140,13 @@ def update_weights(
     weights,
     densities_ensemble,
     densities_ensemble_predicted,
-    modifiedIndices,
+    modified_cell_ids,
     particle_offsets,
     particle_ids,
     max_lon_id,
 ):
-    for xy in modifiedIndices:
-        x, y = xy
-        cell_id = x + max_lon_id * y
+    for cell_id in modified_cell_ids:
+        x, y = unflatten_cell_index(cell_id, max_lon_id)
         start = particle_offsets[cell_id]
         end = particle_offsets[cell_id + 1]
 
@@ -216,7 +184,7 @@ def assimilate(
 
     if config.verbose:
         print("Computing localization matrix")
-    localization_matrix = create_localization_matrix(
+    localization_matrix, obs_cell_ids = create_localization_matrix(
         config.grid_coords,
         observations,
         config.radius_observation,
@@ -233,32 +201,42 @@ def assimilate(
             print("Introducing model density errors")
         reintroduce_error(densities_ensemble, config.reinit_spreading, t_observation)
 
+    current_densities_flat = flatten_density_slice(
+        densities_ensemble[:, :, :, t_observation]
+    )
+
     if config.verbose:
         print("Computing covariances")
-    cov, modifiedIndices = compute_covariances(
+    cov, modified_cell_ids = compute_covariances(
         t_observation,
         avgs_densities,
-        densities_ensemble,
+        current_densities_flat,
         observations,
         localization_matrix,
+        obs_cell_ids,
         datapaths.metrics_dir,
         config,
     )
 
     if config.verbose:
         print("Computing partial Kalman Gain")
-    Binv = compute_partial_kalman_gain(cov, observations)
+    innovation_covariance = compute_innovation_covariance(
+        cov,
+        obs_cell_ids,
+        observations,
+    )
 
     if config.verbose:
         print("Computing corrections")
     corrections = compute_corrections(
-        t_observation,
-        densities_ensemble,
+        current_densities_flat,
         cov,
         observations,
-        Binv,
-        modifiedIndices,
+        innovation_covariance,
+        obs_cell_ids,
         config.verbose,
+        config.grid_coords.max_lon_id,
+        config.grid_coords.max_lat_id,
     )
     if config.verbose:
         print("Maximum of corrections is ", corrections.max())
@@ -273,7 +251,7 @@ def assimilate(
         weights,
         densities_ensemble,
         densities_ensemble_predicted,
-        modifiedIndices,
+        modified_cell_ids,
         particle_offsets,
         particle_ids,
         config.grid_coords.max_lon_id,
